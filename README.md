@@ -1,99 +1,110 @@
-# Neon Arena - Multiplayer Shooter
+# Neon Arena - Мультиплеер Шутер
 
-A real-time top-down shooter game with multiplayer support using Socket.io.
+Neon Arena — это динамичный топ-даун шутер с поддержкой мультиплеера в реальном времени. Играйте с друзьями на общей карте, сражайтесь с волнами врагов и соревнуйтесь за первые места в таблице лидеров!
 
-## Quick Deploy to Render.com (Free)
+## 🎮 Особенности
 
-### Option 1: Automatic Deploy via GitHub
+- **Мультиплеер до 4 игроков** — играйте вместе с друзьями
+- **Система Power-up** — собирайте усиления:
+  - ⚡ Быстрый огонь — увеличенная скорость стрельбы
+  - 💥 Сила — двойной урон пуль
+  - 💨 Скорость — повышенная скорость движения
+  - 🛡️ Щит — защита от столкновений с врагами
+- **Плавное движение** — интерполяция для комфортного геймплея
+- **Система здоровья** — 100 HP с визуальной индикацией
+- **Безопасный спавн** — игроки появляются вдали от врагов
+- **3 типа врагов** — обычные, быстрые и танки
+- **Таблица лидеров** — отслеживайте очки в реальном времени
 
-1. **Push to GitHub:**
-   ```bash
-   cd /workspace/game
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git create neon-arena
-   git push origin main
-   ```
+## 🕹️ Управление
 
-2. **Deploy to Render:**
-   - Go to https://dashboard.render.com
-   - Sign up/Login with GitHub
-   - Click "New +" → "Web Service"
-   - Select your repository
-   - Configure:
-     - **Name:** neon-arena
-     - **Environment:** Node
-     - **Build Command:** `npm install`
-     - **Start Command:** `node server.js`
-   - Click "Create Web Service"
+### Компьютер
+- **WASD** — движение
+- **Мышь** — прицеливание
+- **ЛКМ** — стрельба
 
-3. **Your URL will be:** `https://neon-arena.onrender.com`
+### Мобильные устройства
+- **Левый джойстик** — движение
+- **Правый джойстик** — прицеливание и стрельба
 
-### Option 2: Manual Upload
+## 🚀 Быстрый деплой на Render.com
 
-1. Go to https://dashboard.render.com
-2. Sign up/Login
-3. Click "New +" → "Web Service"
-4. Select "Upload Files"
-5. Upload the `game` folder contents
-6. Configure as above
-
-## Keep Server Awake (Free)
-
-Render free tier sleeps after 15 minutes of inactivity. To prevent this:
-
-### Use UptimeRobot (Free)
-
-1. Go to https://uptimerobot.com
-2. Create free account
-3. Add new monitor:
-   - **Monitor Type:** HTTP(s)
-   - **URL:** Your Render app URL
-   - **Interval:** Every 5 minutes
-
-Your server will stay awake 24/7!
-
-## Local Development
+### Шаг 1: Загрузка на GitHub
 
 ```bash
-cd game
-npm install
-npm start
-# Open http://localhost:3000
+git add .
+git commit -m "Update Neon Arena"
+git push origin main
 ```
 
-## Features
+### Шаг 2: Деплой на Render
 
-- Multiplayer support (up to 4 players)
-- Real-time gameplay with Socket.io
-- Multiple enemy types
-- Wave system
-- Score tracking
-- Character colors for players
+1. Перейдите на https://dashboard.render.com
+2. Войдите через GitHub
+3. Нажмите **"New +"** → **"Web Service"**
+4. Выберите репозиторий `neon-arena`
+5. Настройте:
+   - **Name:** `neon-arena`
+   - **Environment:** `Node`
+   - **Build Command:** `npm install`
+   - **Start Command:** `node server.js`
+6. Нажмите **"Create Web Service"**
 
-## Controls
+### Шаг 3: Ваш URL
+```
+https://neon-arena.onrender.com
+```
 
-- **WASD** - Movement
-- **Mouse** - Aiming
-- **Left Click** - Shooting
-- **Enter** - Send chat message
+## ⏰ Как не дать серверу уснуть
 
-## Tech Stack
+Бесплатный тариф Render переводит сервер в спящий режим через 15 минут бездействия. Используйте UptimeRobot:
 
-- Node.js + Express
-- Socket.io for real-time communication
-- HTML5 Canvas for rendering
+1. Перейдите на https://uptimerobot.com
+2. Создайте бесплатный аккаунт
+3. Добавьте новый монитор:
+   - **Тип:** HTTP(s)
+   - **URL:** Ваш Render URL
+   - **Интервал:** Каждые 5 минут
 
-## Troubleshooting
+Сервер будет работать 24/7!
 
-**Server sleeps immediately:**
-- Add UptimeRobot ping every 5 minutes
+## 💻 Локальная разработка
 
-**WebSocket connection failed:**
-- Check Render logs for errors
-- Ensure port 3000 is not blocked
+```bash
+npm install
+npm start
+# Откройте http://localhost:3000
+```
 
-**Players can't join:**
-- Share the full Render URL
-- Ensure all players use the same Room Code
+## 🛠️ Технологии
+
+- **Node.js + Express** — серверная часть
+- **Socket.io** — коммуникация в реальном времени
+- **HTML5 Canvas** — рендеринг игры
+- **Socket.io Client** — клиентская часть
+
+## 🐛 Устранение неполадок
+
+**Сервер сразу засыпает:**
+- Добавьте UptimeRobot пинг каждые 5 минут
+
+**Ошибка WebSocket:**
+- Проверьте логи Render на ошибки
+- Убедитесь, что порт 3000 открыт
+
+**Игроки не могут присоединиться:**
+- Проверьте правильность кода комнаты
+- Убедитесь, что все используют одинаковый URL
+
+## 📝 Автоматическое обновление
+
+Для автоматического обновления используйте скрипт:
+
+```bash
+./deploy.sh "Ваше сообщение коммита"
+```
+
+Это автоматически:
+- Создаст коммит с изменениями
+- Отправит на GitHub
+- Trigger'ит передеплой на Render
