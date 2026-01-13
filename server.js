@@ -1,5 +1,5 @@
 // ============================================
-// NEON ARENA - Multiplayer Game Server
+// NEON ARENA - Mobile-Friendly Multiplayer Server
 // ============================================
 
 const express = require('express');
@@ -10,12 +10,17 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 
-// Important: Allow all origins for Socket.io
+// Socket.io with mobile-friendly settings
 const io = new Server(server, {
     cors: {
         origin: "*",
-        methods: ["GET", "POST"]
-    }
+        methods: ["GET", "POST"],
+        credentials: false
+    },
+    transports: ['websocket', 'polling'], // Try WebSocket first, fallback to polling
+    allowUpgrades: true,
+    pingTimeout: 60000,
+    pingInterval: 25000
 });
 
 // Serve static files
@@ -61,8 +66,8 @@ class GameRoom {
         this.bullets = [];
         this.enemies = [];
         this.lastEnemySpawn = 0;
-        this.spawnEnemy();
-        this.spawnEnemy();
+        // Spawn initial enemies
+        for (let i = 0; i < 5; i++) this.spawnEnemy();
     }
 
     spawnEnemy() {
@@ -87,16 +92,13 @@ class GameRoom {
             id: `enemy_${Date.now()}_${Math.random()}`,
             x: spawn.x, y: spawn.y, type,
             radius: stat.radius,
-            speed: stat.speed * (1 + this.getWaveMultiplier()),
-            health: stat.health * this.getWaveMultiplier(),
-            maxHealth: stat.health * this.getWaveMultiplier(),
-            color: stat.color, points: stat.points, angle: 0
+            speed: stat.speed,
+            health: stat.health,
+            maxHealth: stat.health,
+            color: stat.color,
+            points: stat.points,
+            angle: 0
         });
-    }
-
-    getWaveMultiplier() {
-        const playerCount = this.players.size;
-        return 1 + (playerCount - 1) * 0.3;
     }
 
     addPlayer(socket, nickname) {
@@ -113,7 +115,8 @@ class GameRoom {
             score: 0,
             alive: true,
             respawnTime: 0,
-            lastShot: 0
+            lastShot: 0,
+            input: {}
         };
         this.players.set(socket.id, player);
         socket.join(this.id);
@@ -266,29 +269,52 @@ class GameRoom {
     }
 }
 
-// Socket.io handlers
+// Socket.io with improved mobile support
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
 
+    // Send immediate ping to check connection
+    socket.emit('ping', { time: Date.now() });
+
     socket.on('joinRoom', (data) => {
         const { roomId, nickname } = data;
+        
+        if (!nickname || nickname.trim().length < 1) {
+            socket.emit('error', { message: 'Введите никнейм!' });
+            return;
+        }
+
         let room;
         if (roomId) {
             room = rooms.get(roomId.toUpperCase());
-            if (!room) { socket.emit('error', { message: 'Комната не найдена' }); return; }
-            if (room.players.size >= MAX_PLAYERS) { socket.emit('error', { message: 'Комната заполнена' }); return; }
+            if (!room) {
+                socket.emit('error', { message: 'Комната не найдена!' });
+                return;
+            }
+            if (room.players.size >= MAX_PLAYERS) {
+                socket.emit('error', { message: 'Комната заполнена!' });
+                return;
+            }
         } else {
             roomId = generateRoomId();
             room = new GameRoom(roomId, socket.id);
             rooms.set(roomId, room);
         }
-        room.addPlayer(socket, nickname);
+
+        room.addPlayer(socket, nickname.trim());
+        
         socket.emit('roomJoined', {
-            roomId: room.id, playerId: socket.id,
-            isHost: socket.id === room.hostId, state: room.getState()
+            roomId: room.id,
+            playerId: socket.id,
+            isHost: socket.id === room.hostId,
+            state: room.getState()
         });
-        socket.to(room.id).emit('playerJoined', { player: room.players.get(socket.id) });
-        console.log(`Player ${socket.id} joined room ${room.id}`);
+
+        socket.to(room.id).emit('playerJoined', {
+            player: room.players.get(socket.id)
+        });
+
+        console.log(`Player ${socket.id} (${nickname}) joined room ${room.id}`);
     });
 
     socket.on('input', (input) => {
@@ -314,7 +340,18 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('chat', (message) => {
+        const room = rooms.get(socket.roomId);
+        if (room && room.players.has(socket.id)) {
+            const player = room.players.get(socket.id);
+            io.to(room.id).emit('chatMessage', {
+                nickname: player.nickname,
+                message: message.substring(0, 200)
+            });
+        }
+    });
+
+    socket.on('disconnect', (reason) => {
         const room = rooms.get(socket.roomId);
         if (room) {
             const player = room.removePlayer(socket.id);
@@ -326,18 +363,18 @@ io.on('connection', (socket) => {
                 io.to(room.id).emit('hostChanged', { hostId: room.hostId });
             }
         }
-        console.log('Player disconnected:', socket.id);
+        console.log('Player disconnected:', socket.id, reason);
+    });
+
+    socket.on('error', (err) => {
+        console.error('Socket error:', err);
     });
 });
 
-// Game Loop
-setInterval(() => {
-    const currentTime = Date.now();
-    for (const room of rooms.values()) {
-        room.update(currentTime);
-        io.to(room.id).emit('gameUpdate', room.getState());
-    }
-}, 1000 / 60);
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', players: io.engine.clientsCount });
+});
 
 // Routes
 app.get('/', (req, res) => {
@@ -352,9 +389,12 @@ app.get('/room/:id', (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, '0.0.0.0', () => {
-    console.log('NEON ARENA SERVER RUNNING');
-    console.log('Port:', PORT);
-    console.log('Environment:', process.env.NODE_ENV || 'development');
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║     NEON ARENA SERVER STARTED         ║');
+    console.log('╠════════════════════════════════════════╣');
+    console.log('║  Port: ' + PORT);
+    console.log('║  Mobile-optimized with polling fallback');
+    console.log('╚════════════════════════════════════════╝');
 });
 
 // Error handlers
@@ -365,3 +405,12 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (err) => {
     console.error('Unhandled Rejection:', err.message);
 });
+
+// Game Loop - 60 TPS
+setInterval(() => {
+    const currentTime = Date.now();
+    for (const room of rooms.values()) {
+        room.update(currentTime);
+        io.to(room.id).emit('gameUpdate', room.getState());
+    }
+}, 1000 / 60);
