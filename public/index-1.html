@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Arena</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Rajdhani:wght@500;700&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #0B0F19; font-family: 'Rajdhani', sans-serif; touch-action: none; -webkit-tap-highlight-color: transparent; }
+        #gameCanvas { display: block; width: 100%; height: 100%; background: #0B0F19; }
+
+        /* Joysticks */
+        .joystickZone { position: fixed; width: 110px; height: 110px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); display: none; pointer-events: auto; z-index: 50; }
+        .joystickZone.active { display: block; }
+        #joystickLeft { bottom: 70px; left: 15px; }
+        #joystickRight { bottom: 70px; right: 15px; }
+        .joystickKnob { position: absolute; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.25); border: 2px solid rgba(255,255,255,0.4); top: 50%; left: 50%; transform: translate(-50%,-50%); }
+
+        /* Status */
+        #connectionStatus { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 18px; font-size: 11px; font-weight: 700; text-transform: uppercase; z-index: 200; }
+        #connectionStatus.connected { background: rgba(0,255,136,0.2); color: #00FF88; border: 2px solid #00FF88; }
+        #connectionStatus.disconnected { background: rgba(255,0,60,0.2); color: #FF003C; border: 2px solid #FF003C; }
+        #connectionStatus.connecting { background: rgba(255,165,0,0.2); color: #FFA500; border: 2px solid #FFA500; }
+
+        /* Overlays */
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(11,15,25,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; pointer-events: auto; padding: 20px; }
+        .overlay.hidden { display: none !important; }
+        #mainMenu { background: radial-gradient(ellipse at center, rgba(0,240,255,0.06) 0%, transparent 70%); }
+        #gameLogo { font-family: 'Orbitron', sans-serif; font-size: 36px; font-weight: 900; color: #fff; text-shadow: 0 0 25px rgba(0,240,255,0.7); letter-spacing: 3px; margin-bottom: 6px; text-align: center; }
+        #gameSubtitle { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 25px; letter-spacing: 3px; text-transform: uppercase; }
+        .menuForm { background: rgba(255,255,255,0.03); border: 2px solid rgba(0,240,255,0.2); border-radius: 12px; padding: 22px; width: 100%; max-width: 320px; }
+        .formGroup { margin-bottom: 10px; }
+        .formGroup label { display: block; color: rgba(255,255,255,0.6); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .formGroup input { width: 100%; background: rgba(0,0,0,0.3); border: 2px solid rgba(0,240,255,0.25); border-radius: 6px; padding: 10px 12px; color: #fff; font-size: 14px; outline: none; }
+        .formGroup input:focus { border-color: #00F0FF; }
+        .btn { width: 100%; padding: 12px 18px; font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 700; color: #fff; border: none; border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; touch-action: manipulation; }
+        .btn:active { transform: scale(0.97); }
+        .btnPrimary { background: linear-gradient(135deg, #00F0FF, #0099CC); }
+        .btnSecondary { background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.15); }
+        .btnStart { background: linear-gradient(135deg, #00FF88, #00CC66); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+        .divider { display: flex; align-items: center; margin: 10px 0; color: rgba(255,255,255,0.25); font-size: 9px; text-transform: uppercase; }
+        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
+        .divider span { padding: 0 10px; }
+
+        #waitingRoom .menuForm, #gameOverScreen .menuForm { max-width: 340px; }
+        #roomTitle { font-family: 'Orbitron', sans-serif; font-size: 16px; color: #00F0FF; text-align: center; margin-bottom: 10px; }
+        #roomCode { background: rgba(0,240,255,0.1); padding: 3px 8px; border-radius: 4px; font-family: 'Orbitron', sans-serif; }
+        #playerList { background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px; margin-bottom: 10px; max-height: 100px; overflow-y: auto; }
+        .playerEntry { display: flex; align-items: center; justify-content: space-between; padding: 5px; background: rgba(255,255,255,0.04); border-radius: 4px; margin-bottom: 4px; font-size: 12px; }
+        .playerInfo { display: flex; align-items: center; gap: 6px; }
+        .playerColor { width: 10px; height: 10px; border-radius: 50%; }
+        .playerStatus { font-size: 9px; color: rgba(255,255,255,0.45); }
+        .playerStatus.host::after { content: ' ★'; color: #FFD700; }
+        #winnerAnnouncement { font-family: 'Orbitron', sans-serif; font-size: 22px; font-weight: 900; text-align: center; margin-bottom: 18px; color: #00F0FF; }
+
+        /* Game UI */
+        #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        #ui.hidden { display: none; }
+        
+        /* Health Bar */
+        #healthBar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 3px; padding: 6px 10px; background: rgba(0,0,0,0.4); border-radius: 8px; border: 2px solid rgba(0,240,255,0.3); }
+        .healthPip { width: 18px; height: 8px; background: linear-gradient(180deg, #00FF88, #00CC66); border-radius: 2px; transition: all 0.2s; }
+        .healthPip.lost { background: rgba(255,0,60,0.3); border-color: rgba(255,0,60,0.5); }
+
+        /* Score */
+        #scoreDisplay { position: absolute; top: 50px; left: 15px; color: #fff; font-size: 14px; font-family: 'Orbitron', sans-serif; }
+        #scoreDisplay span { color: #00F0FF; }
+
+        #leaderboard { position: absolute; top: 12px; right: 12px; background: rgba(11,15,25,0.85); border: 2px solid rgba(0,240,255,0.25); border-radius: 8px; padding: 10px; min-width: 130px; }
+        #leaderboard h3 { color: #00F0FF; font-family: 'Orbitron', sans-serif; font-size: 10px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+        .leaderboardEntry { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 10px; }
+        .leaderboardEntry.self { color: #00F0FF; font-weight: 700; }
+        .leaderboardColor { width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
+        .leaderboardScore { font-family: 'Orbitron', sans-serif; }
+
+        #roomInfo { position: absolute; top: 12px; left: 12px; color: rgba(255,255,255,0.6); font-size: 10px; }
+        #roomInfo span { color: #00F0FF; font-family: 'Orbitron', sans-serif; }
+
+        /* Message */
+        .message { text-align: center; padding: 8px; border-radius: 6px; margin-bottom: 10px; font-size: 12px; }
+        .messageError { background: rgba(255,0,60,0.2); color: #FF003C; border: 1px solid rgba(255,0,60,0.5); }
+
+        @media (pointer: coarse) {
+            #controlsHint { display: none; }
+            #mobileHint { display: block; position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.35); font-size: 9px; text-align: center; z-index: 60; }
+        }
+        #controlsHint { display: block; position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.35); font-size: 9px; }
+        #mobileHint { display: none; }
+        #controlsHint span, #mobileHint span { color: #00F0FF; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Joysticks -->
+    <div id="joystickLeft" class="joystickZone"><div class="joystickKnob"></div></div>
+    <div id="joystickRight" class="joystickZone"><div class="joystickKnob"></div></div>
+
+    <div id="connectionStatus" class="connecting">Подключение...</div>
+
+    <!-- Main Menu -->
+    <div id="mainMenu" class="overlay">
+        <div id="gameLogo">NEON ARENA</div>
+        <div id="gameSubtitle">Multiplayer</div>
+        <div class="menuForm">
+            <div id="menuMessage" class="message" style="display:none;"></div>
+            <div class="formGroup">
+                <label>Ваш ник</label>
+                <input type="text" id="nicknameInput" placeholder="Введите ник" maxlength="15" autocomplete="off">
+            </div>
+            <button class="btn btnPrimary" id="createRoomBtn">Создать комнату</button>
+            <div class="divider"><span>или</span></div>
+            <div class="formGroup">
+                <label>Код комнаты</label>
+                <input type="text" id="roomCodeInput" placeholder="Код" maxlength="6" autocomplete="off">
+            </div>
+            <button class="btn btnSecondary" id="joinRoomBtn">Присоединиться</button>
+        </div>
+        <div id="controlsHint"><span>WASD</span> движение | <span>МЫШЬ</span> прицел</div>
+        <div id="mobileHint" style="display:none;"><span>ЛЕВЫЙ</span> джойстик | <span>ПРАВЫЙ</span> стрельба</div>
+    </div>
+
+    <!-- Waiting Room -->
+    <div id="waitingRoom" class="overlay hidden">
+        <div class="menuForm">
+            <div id="roomTitle">Комната: <span id="roomCode">------</span></div>
+            <div id="playerList"></div>
+            <button class="btn btnStart" id="startGameBtn">Начать игру</button>
+            <button class="btn btnSecondary" id="leaveRoomBtn">Покинуть</button>
+        </div>
+    </div>
+
+    <!-- Game Over -->
+    <div id="gameOverScreen" class="overlay hidden">
+        <div class="menuForm">
+            <div id="winnerAnnouncement">ИГРА ОКОНЧЕНА</div>
+            <div id="finalLeaderboard"></div>
+            <button class="btn btnSecondary" id="backToMenuBtn">В меню</button>
+        </div>
+    </div>
+
+    <!-- Game UI -->
+    <div id="ui" class="hidden">
+        <div id="roomInfo">Комната: <span id="currentRoomCode">------</span></div>
+        <div id="scoreDisplay">Очки: <span id="playerScore">0</span></div>
+        <div id="leaderboard"><h3>Очки</h3><div id="leaderboardList"></div></div>
+        <div id="healthBar"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+    const MAX_HEALTH = 100;
+    const PIP_COUNT = 10;
+    const MAP_WIDTH = 1600;
+    const MAP_HEIGHT = 1200;
+
+    class GameClient {
+        constructor() {
+            this.canvas = document.getElementById('gameCanvas');
+            this.ctx = this.canvas.getContext('2d');
+            this.socket = io();
+
+            this.state = { players: [], bullets: [], enemies: [], roomId: null, playerId: null, hostId: null, isHost: false, gameStarted: false };
+            this.localPlayer = null;
+            this.input = { up: false, down: false, left: false, right: false, moveX: 0, moveY: 0, angle: 0, shooting: false };
+            this.camera = { x: 0, y: 0 };
+
+            this.resizeCanvas();
+            window.addEventListener('resize', () => this.resizeCanvas());
+
+            this.initUI();
+            this.initJoysticks();
+            this.connectToServer();
+
+            this.lastInputTime = 0;
+            requestAnimationFrame((t) => this.renderLoop(t));
+        }
+
+        resizeCanvas() {
+            this.canvas.width = window.innerWidth;
+            this.canvas.height = window.innerHeight;
+        }
+
+        initUI() {
+            const addHandler = (id, handler) => {
+                const el = document.getElementById(id);
+                if (el) { el.addEventListener('click', handler); el.addEventListener('touchend', (e) => { e.preventDefault(); handler(); }); }
+            };
+            addHandler('createRoomBtn', () => this.createRoom());
+            addHandler('joinRoomBtn', () => this.joinRoom());
+            addHandler('startGameBtn', () => this.startGame());
+            addHandler('leaveRoomBtn', () => this.leaveRoom());
+            addHandler('backToMenuBtn', () => this.backToMenu());
+
+            document.addEventListener('keydown', (e) => this.handleKey(e, true));
+            document.addEventListener('keyup', (e) => this.handleKey(e, false));
+
+            // Mouse controls
+            document.addEventListener('mousemove', (e) => {
+                if (this.state.gameStarted && this.localPlayer) {
+                    this.input.angle = Math.atan2(e.clientY - this.canvas.height / 2, e.clientX - this.canvas.width / 2);
+                }
+            });
+            document.addEventListener('mousedown', () => { this.input.shooting = true; this.sendInput(); });
+            document.addEventListener('mouseup', () => { this.input.shooting = false; this.sendInput(); });
+        }
+
+        handleKey(e, isDown) {
+            const key = e.code;
+            if (key === 'KeyW' || key === 'ArrowUp') this.input.up = isDown;
+            if (key === 'KeyS' || key === 'ArrowDown') this.input.down = isDown;
+            if (key === 'KeyA' || key === 'ArrowLeft') this.input.left = isDown;
+            if (key === 'KeyD' || key === 'ArrowRight') this.input.right = isDown;
+            this.updateMoveFromKeys();
+            this.sendInput();
+        }
+
+        updateMoveFromKeys() {
+            let x = (this.input.right ? 1 : 0) - (this.input.left ? 1 : 0);
+            let y = (this.input.down ? 1 : 0) - (this.input.up ? 1 : 0);
+            if (x !== 0 && y !== 0) { const len = Math.sqrt(x*x + y*y); x /= len; y /= len; }
+            this.input.moveX = x;
+            this.input.moveY = y;
+        }
+
+        initJoysticks() {
+            const leftZone = document.getElementById('joystickLeft');
+            const rightZone = document.getElementById('joystickRight');
+            const leftKnob = leftZone?.querySelector('.joystickKnob');
+            const rightKnob = rightZone?.querySelector('.joystickKnob');
+
+            let leftId = null, rightId = null;
+            const maxR = 35, thr = 8;
+
+            const moveLeft = (e) => {
+                e.preventDefault();
+                const touch = Array.from(e.changedTouches).find(t => t.identifier === leftId);
+                if (!touch) return;
+                const rect = leftZone.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                let dx = touch.clientX - cx, dy = touch.clientY - cy;
+                const d = Math.sqrt(dx*dx + dy*dy);
+                if (d > maxR) { dx = dx/d * maxR; dy = dy/d * maxR; }
+                if (leftKnob) leftKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                this.input.moveX = d > thr ? dx / maxR : 0;
+                this.input.moveY = d > thr ? dy / maxR : 0;
+                this.sendInput();
+            };
+
+            const endLeft = (e) => {
+                e.preventDefault();
+                if (Array.from(e.changedTouches).some(t => t.identifier === leftId)) {
+                    leftId = null;
+                    this.input.moveX = 0; this.input.moveY = 0;
+                    if (leftKnob) leftKnob.style.transform = 'translate(-50%, -50%)';
+                    this.sendInput();
+                }
+            };
+
+            const moveRight = (e) => {
+                e.preventDefault();
+                const touch = Array.from(e.changedTouches).find(t => t.identifier === rightId);
+                if (!touch) return;
+                const rect = rightZone.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                let dx = touch.clientX - cx, dy = touch.clientY - cy;
+                const d = Math.sqrt(dx*dx + dy*dy);
+                if (d > maxR) { dx = dx/d * maxR; dy = dy/d * maxR; }
+                if (rightKnob) rightKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                this.input.angle = Math.atan2(dy, dx);
+                this.input.shooting = d > thr;
+                this.sendInput();
+            };
+
+            const endRight = (e) => {
+                e.preventDefault();
+                if (Array.from(e.changedTouches).some(t => t.identifier === rightId)) {
+                    rightId = null;
+                    this.input.shooting = false;
+                    if (rightKnob) rightKnob.style.transform = 'translate(-50%, -50%)';
+                    this.sendInput();
+                }
+            };
+
+            if (leftZone) {
+                leftZone.addEventListener('touchstart', (e) => { e.preventDefault(); if (leftId === null) { leftId = e.changedTouches[0].identifier; moveLeft(e); } }, { passive: false });
+                leftZone.addEventListener('touchmove', moveLeft, { passive: false });
+                leftZone.addEventListener('touchend', endLeft, { passive: false });
+            }
+            if (rightZone) {
+                rightZone.addEventListener('touchstart', (e) => { e.preventDefault(); if (rightId === null) { rightId = e.changedTouches[0].identifier; moveRight(e); } }, { passive: false });
+                rightZone.addEventListener('touchmove', moveRight, { passive: false });
+                rightZone.addEventListener('touchend', endRight, { passive: false });
+            }
+        }
+
+        connectToServer() {
+            const status = document.getElementById('connectionStatus');
+
+            this.socket.on('connect', () => { status.textContent = 'Подключено'; status.className = 'connected'; });
+            this.socket.on('disconnect', () => { status.textContent = 'Отключено'; status.className = 'disconnected'; this.state.gameStarted = false; this.showScreen('mainMenu'); });
+            this.socket.on('connect_error', () => { status.textContent = 'Ошибка'; status.className = 'disconnected'; });
+
+            this.socket.on('roomJoined', (d) => {
+                this.state.roomId = d.roomId;
+                this.state.playerId = d.playerId;
+                this.state.hostId = d.hostId;
+                this.state.isHost = d.isHost;
+                this.state.players = d.state.players;
+                this.state.gameStarted = d.state.state === 'playing';
+                this.updatePlayerList();
+                this.showScreen('waitingRoom');
+                document.getElementById('roomCode').textContent = d.roomId;
+                document.getElementById('currentRoomCode').textContent = d.roomId;
+                document.getElementById('startGameBtn').disabled = !d.isHost;
+            });
+
+            this.socket.on('playerJoined', (d) => { this.state.players.push(d.player); this.updatePlayerList(); document.getElementById('startGameBtn').disabled = !this.state.isHost; });
+            this.socket.on('playerLeft', (d) => { this.state.players = this.state.players.filter(p => p.id !== d.playerId); this.updatePlayerList(); document.getElementById('startGameBtn').disabled = !this.state.isHost; });
+            this.socket.on('hostChanged', (d) => { this.state.hostId = d.hostId; this.state.isHost = d.hostId === this.state.playerId; this.updatePlayerList(); document.getElementById('startGameBtn').disabled = !this.state.isHost; });
+
+            this.socket.on('gameStarted', (st) => {
+                this.state.gameStarted = true;
+                this.state.players = st.players;
+                this.state.bullets = st.bullets;
+                this.state.enemies = st.enemies;
+                this.showScreen('inGame');
+                document.getElementById('joystickLeft')?.classList.add('active');
+                document.getElementById('joystickRight')?.classList.add('active');
+                this.localPlayer = this.state.players.find(p => p.id === this.state.playerId);
+                this.updateHealthUI();
+            });
+
+            this.socket.on('gameUpdate', (st) => {
+                this.state.players = st.players;
+                this.state.bullets = st.bullets;
+                this.state.enemies = st.enemies;
+                this.localPlayer = this.state.players.find(p => p.id === this.state.playerId);
+                this.updateLeaderboard();
+                this.updateHealthUI();
+                this.updateScoreUI();
+            });
+
+            this.socket.on('error', (d) => this.showMsg('menuMessage', d.message, 'error'));
+        }
+
+        createRoom() {
+            const nick = document.getElementById('nicknameInput').value.trim();
+            if (!nick) { this.showMsg('menuMessage', 'Введите ник!', 'error'); return; }
+            this.socket.emit('joinRoom', { roomId: null, nickname: nick });
+        }
+
+        joinRoom() {
+            const nick = document.getElementById('nicknameInput').value.trim();
+            const room = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+            if (!nick) { this.showMsg('menuMessage', 'Введите ник!', 'error'); return; }
+            if (!room) { this.showMsg('menuMessage', 'Введите код!', 'error'); return; }
+            this.socket.emit('joinRoom', { roomId: room, nickname: nick });
+        }
+
+        startGame() { this.socket.emit('startGame'); }
+        leaveRoom() { this.socket.disconnect(); this.socket.connect(); this.showScreen('mainMenu'); this.state.roomId = null; }
+        backToMenu() { document.getElementById('joystickLeft')?.classList.remove('active'); document.getElementById('joystickRight')?.classList.remove('active'); this.showScreen('mainMenu'); this.state.gameStarted = false; }
+
+        showScreen(id) {
+            document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
+            document.getElementById('ui')?.classList.add('hidden');
+            if (id === 'inGame') { document.getElementById('ui')?.classList.remove('hidden'); }
+            else { document.getElementById(id)?.classList.remove('hidden'); }
+        }
+
+        showMsg(id, text, type) {
+            const el = document.getElementById(id);
+            if (el) { el.textContent = text; el.className = `message message${type.charAt(0).toUpperCase() + type.slice(1)}`; el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 3000); }
+        }
+
+        updatePlayerList() {
+            const list = document.getElementById('playerList');
+            if (!list) return;
+            list.innerHTML = this.state.players.map(p => `
+                <div class="playerEntry">
+                    <div class="playerInfo"><div class="playerColor" style="background:${p.color}"></div><span>${p.nickname}</span></div>
+                    <span class="playerStatus ${p.id === this.state.hostId ? 'host' : ''}">${p.id === this.state.hostId ? 'Организатор' : 'Готов'}</span>
+                </div>
+            `).join('');
+        }
+
+        updateLeaderboard() {
+            const list = document.getElementById('leaderboardList');
+            if (!list) return;
+            const sorted = [...this.state.players].sort((a, b) => b.score - a.score);
+            list.innerHTML = sorted.map((p, i) => `
+                <div class="leaderboardEntry ${p.id === this.state.playerId ? 'self' : ''}">
+                    <div class="leaderboardName"><div class="leaderboardColor" style="background:${p.color}"></div><span>${i + 1}. ${p.nickname}</span></div>
+                    <span class="leaderboardScore">${p.score}</span>
+                </div>
+            `).join('');
+        }
+
+        updateHealthUI() {
+            const cont = document.getElementById('healthBar');
+            if (!cont || !this.localPlayer) return;
+            const pips = Math.ceil(this.localPlayer.health / (MAX_HEALTH / PIP_COUNT));
+            cont.innerHTML = '';
+            for (let i = 0; i < PIP_COUNT; i++) {
+                const d = document.createElement('div');
+                d.className = 'healthPip' + (i >= pips ? ' lost' : '');
+                cont.appendChild(d);
+            }
+        }
+
+        updateScoreUI() {
+            const el = document.getElementById('playerScore');
+            if (el && this.localPlayer) el.textContent = this.localPlayer.score;
+        }
+
+        sendInput() {
+            const now = Date.now();
+            if (now - this.lastInputTime < 16) return;
+            this.lastInputTime = now;
+            this.socket.emit('input', this.input);
+        }
+
+        renderLoop(t) {
+            requestAnimationFrame((t) => this.renderLoop(t));
+
+            this.ctx.fillStyle = '#0B0F19';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            if (!this.state.gameStarted || !this.localPlayer) { this.drawBG(); return; }
+
+            this.camera.x = this.localPlayer.x - this.canvas.width / 2;
+            this.camera.y = this.localPlayer.y - this.canvas.height / 2;
+            this.camera.x = Math.max(0, Math.min(MAP_WIDTH - this.canvas.width, this.camera.x));
+            this.camera.y = Math.max(0, Math.min(MAP_HEIGHT - this.canvas.height, this.camera.y));
+
+            this.ctx.save();
+            this.ctx.translate(-this.camera.x, -this.camera.y);
+
+            this.drawBG();
+            this.drawGrid();
+            this.drawEnemies();
+            this.drawBullets();
+            this.drawPlayers();
+            this.drawBounds();
+
+            this.ctx.restore();
+        }
+
+        drawBG() {
+            const g = this.ctx.createRadialGradient(this.canvas.width/2, this.canvas.height/2, 0, this.canvas.width/2, this.canvas.height/2, this.canvas.width);
+            g.addColorStop(0, '#0B0F19'); g.addColorStop(1, '#05080F');
+            this.ctx.fillStyle = g;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+
+        drawGrid() {
+            this.ctx.strokeStyle = 'rgba(0, 240, 255, 0.04)';
+            this.ctx.lineWidth = 1;
+            const gs = 50, sx = Math.floor(this.camera.x / gs) * gs, sy = Math.floor(this.camera.y / gs) * gs;
+            for (let x = sx; x < sx + this.canvas.width + gs; x += gs) { this.ctx.beginPath(); this.ctx.moveTo(x, Math.max(0, this.camera.y)); this.ctx.lineTo(x, Math.min(MAP_HEIGHT, this.camera.y + this.canvas.height)); this.ctx.stroke(); }
+            for (let y = sy; y < sy + this.canvas.height + gs; y += gs) { this.ctx.beginPath(); this.ctx.moveTo(Math.max(0, this.camera.x), y); this.ctx.lineTo(Math.min(MAP_WIDTH, this.camera.x + this.canvas.width), y); this.ctx.stroke(); }
+        }
+
+        drawBounds() {
+            this.ctx.strokeStyle = '#FF003C';
+            this.ctx.lineWidth = 3;
+            this.ctx.shadowBlur = 15;
+            this.ctx.shadowColor = '#FF003C';
+            this.ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+            this.ctx.shadowBlur = 0;
+        }
+
+        drawPlayers() {
+            for (const p of this.state.players) {
+                if (!p.alive) continue;
+                this.ctx.shadowBlur = 18;
+                this.ctx.shadowColor = p.color;
+                this.ctx.fillStyle = p.color;
+                this.ctx.beginPath();
+                this.ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.fillStyle = 'rgba(0,0,0,0.35)';
+                this.ctx.beginPath();
+                this.ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.fillStyle = p.color;
+                this.ctx.save();
+                this.ctx.translate(p.x, p.y);
+                this.ctx.rotate(p.angle);
+                this.ctx.fillRect(14, -3, 26, 6);
+                this.ctx.restore();
+                this.ctx.shadowBlur = 0;
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '11px Rajdhani';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(p.nickname, p.x, p.y - 30);
+            }
+        }
+
+        drawBullets() {
+            this.ctx.globalCompositeOperation = 'lighter';
+            for (const b of this.state.bullets) {
+                this.ctx.shadowBlur = 12;
+                this.ctx.shadowColor = '#00F0FF';
+                this.ctx.fillStyle = '#00F0FF';
+                this.ctx.beginPath();
+                this.ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+            this.ctx.shadowBlur = 0;
+            this.ctx.globalCompositeOperation = 'source-over';
+        }
+
+        drawEnemies() {
+            for (const e of this.state.enemies) {
+                this.ctx.shadowBlur = 12;
+                this.ctx.shadowColor = e.color;
+                this.ctx.fillStyle = e.color;
+
+                if (e.type === 'tank') {
+                    this.ctx.beginPath();
+                    for (let i = 0; i < 6; i++) {
+                        const a = i * Math.PI * 2 / 6;
+                        const x = e.x + Math.cos(a) * e.radius;
+                        const y = e.y + Math.sin(a) * e.radius;
+                        i === 0 ? this.ctx.moveTo(x, y) : this.ctx.lineTo(x, y);
+                    }
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                } else if (e.type === 'fast') {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(e.x + Math.cos(e.angle) * e.radius, e.y + Math.sin(e.angle) * e.radius);
+                    this.ctx.lineTo(e.x + Math.cos(e.angle + 2.5) * e.radius, e.y + Math.sin(e.angle + 2.5) * e.radius);
+                    this.ctx.lineTo(e.x + Math.cos(e.angle - 2.5) * e.radius, e.y + Math.sin(e.angle - 2.5) * e.radius);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                } else {
+                    this.ctx.beginPath();
+                    this.ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+
+                if (e.health < e.maxHealth) {
+                    const w = e.radius * 1.8, h = 3;
+                    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    this.ctx.fillRect(e.x - w/2, e.y - e.radius - 8, w, h);
+                    this.ctx.fillStyle = e.color;
+                    this.ctx.fillRect(e.x - w/2, e.y - e.radius - 8, w * (e.health / e.maxHealth), h);
+                }
+                this.ctx.shadowBlur = 0;
+            }
+        }
+    }
+
+    new GameClient();
+    </script>
+</body>
+</html>
