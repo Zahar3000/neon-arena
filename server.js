@@ -1,5 +1,5 @@
 // ============================================
-// NEON ARENA - Mobile-Friendly Multiplayer Server
+// NEON ARENA - Fixed Multiplayer Server
 // ============================================
 
 const express = require('express');
@@ -10,33 +10,34 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 
-// Socket.io with mobile-friendly settings
 const io = new Server(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"],
         credentials: false
     },
-    transports: ['websocket', 'polling'], // Try WebSocket first, fallback to polling
+    transports: ['websocket', 'polling'],
     allowUpgrades: true,
     pingTimeout: 60000,
     pingInterval: 25000
 });
 
-// Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Game Constants
+// Game Constants - FIXED VALUES
 const MAX_PLAYERS = 4;
 const MAP_WIDTH = 1600;
 const MAP_HEIGHT = 1200;
 const PLAYER_SPEED = 6;
 const BULLET_SPEED = 15;
-const BULLET_DAMAGE = 25;
-const FIRE_RATE = 100;
+const BULLET_DAMAGE = 10;  // Reduced from 25 - now takes 10 hits to kill
+const FIRE_RATE = 120;
 const MAX_HEALTH = 100;
-const ENEMY_SPAWN_RATE = 1500;
+const ENEMY_SPAWN_RATE = 3000;  // Slowed down from 1500ms
 const RESPAWN_TIME = 3000;
+const INITIAL_ENEMIES = 5;  // Reduced from 10
+const MAX_ENEMIES = 12;  // Maximum enemies on screen
+const SAFE_SPAWN_RADIUS = 150;  // Distance from enemies when spawning
 
 const PLAYER_COLORS = ['#00F0FF', '#FF003C', '#39FF14', '#BF00FF'];
 const rooms = new Map();
@@ -53,6 +54,32 @@ function getRandomSpawn() {
     };
 }
 
+// FIXED: Safe spawn - finds location away from enemies
+function getSafeSpawn(enemies) {
+    let attempts = 0;
+    const margin = 100;
+    
+    while (attempts < 20) {
+        const x = margin + Math.random() * (MAP_WIDTH - margin * 2);
+        const y = margin + Math.random() * (MAP_HEIGHT - margin * 2);
+        
+        let safe = true;
+        for (const enemy of enemies) {
+            const dist = Math.sqrt((x - enemy.x) ** 2 + (y - enemy.y) ** 2);
+            if (dist < SAFE_SPAWN_RADIUS) {
+                safe = false;
+                break;
+            }
+        }
+        
+        if (safe) return { x, y };
+        attempts++;
+    }
+    
+    // Fallback to random position if no safe spot found
+    return getRandomSpawn();
+}
+
 function distance(a, b) {
     return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
@@ -66,11 +93,12 @@ class GameRoom {
         this.bullets = [];
         this.enemies = [];
         this.lastEnemySpawn = 0;
-        // Spawn initial enemies
-        for (let i = 0; i < 5; i++) this.spawnEnemy();
     }
 
     spawnEnemy() {
+        // Don't exceed max enemies
+        if (this.enemies.length >= MAX_ENEMIES) return;
+
         const types = ['normal', 'fast', 'tank'];
         const weights = [0.6, 0.25, 0.15];
         let rand = Math.random();
@@ -81,9 +109,9 @@ class GameRoom {
         }
 
         const stats = {
-            normal: { radius: 18, speed: 2, health: 50, color: '#FF5F1F', points: 100 },
-            fast: { radius: 14, speed: 4, health: 30, color: '#FF3366', points: 150 },
-            tank: { radius: 35, speed: 1, health: 150, color: '#9933FF', points: 300 }
+            normal: { radius: 18, speed: 2.5, health: 40, color: '#FF5F1F', points: 100 },
+            fast: { radius: 14, speed: 4.5, health: 25, color: '#FF3366', points: 150 },
+            tank: { radius: 30, speed: 1.2, health: 120, color: '#9933FF', points: 300 }
         };
 
         const stat = stats[type];
@@ -103,7 +131,7 @@ class GameRoom {
 
     addPlayer(socket, nickname) {
         const colorIndex = this.players.size % PLAYER_COLORS.length;
-        const spawn = getRandomSpawn();
+        const spawn = getSafeSpawn(this.enemies);
         const player = {
             id: socket.id,
             socketId: socket.id,
@@ -139,17 +167,25 @@ class GameRoom {
         for (const player of this.players.values()) {
             if (!player.alive) {
                 if (currentTime > player.respawnTime) {
-                    const spawn = getRandomSpawn();
+                    const spawn = getSafeSpawn(this.enemies);
                     player.x = spawn.x; player.y = spawn.y;
                     player.health = MAX_HEALTH;
                     player.alive = true;
-                    player.score = Math.max(0, player.score - 50);
+                    player.score = Math.max(0, player.score - 25);
                 }
                 continue;
             }
 
             if (player.input) {
                 let dx = 0, dy = 0;
+                
+                // Support joystick input (moveX/moveY)
+                if (player.input.moveX !== undefined || player.input.moveY !== undefined) {
+                    dx = player.input.moveX || 0;
+                    dy = player.input.moveY || 0;
+                }
+                
+                // Also support keyboard input (up/down/left/right)
                 if (player.input.up) dy -= 1;
                 if (player.input.down) dy += 1;
                 if (player.input.left) dx -= 1;
@@ -217,21 +253,24 @@ class GameRoom {
                 enemy.x += (dx / dist) * enemy.speed;
                 enemy.y += (dy / dist) * enemy.speed;
                 enemy.angle = Math.atan2(dy, dx);
+                
+                // FIXED: Reduced damage per hit
                 for (const player of this.players.values()) {
                     if (!player.alive) continue;
-                    if (distance(enemy, player) < enemy.radius + 15) {
-                        player.health -= enemy.type === 'tank' ? 15 : 10;
+                    if (distance(enemy, player) < enemy.radius + 18) {
+                        player.health -= enemy.type === 'tank' ? 8 : 5;
                         if (player.health <= 0) {
                             player.alive = false;
                             player.respawnTime = currentTime + RESPAWN_TIME;
+                            player.health = 0;
                         }
                     }
                 }
             }
         }
 
-        // Spawn enemies
-        if (currentTime - this.lastEnemySpawn > ENEMY_SPAWN_RATE) {
+        // Spawn enemies (slower rate)
+        if (currentTime - this.lastEnemySpawn > ENEMY_SPAWN_RATE && this.enemies.length < MAX_ENEMIES) {
             this.spawnEnemy();
             this.lastEnemySpawn = currentTime;
         }
@@ -269,12 +308,8 @@ class GameRoom {
     }
 }
 
-// Socket.io with improved mobile support
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
-
-    // Send immediate ping to check connection
-    socket.emit('ping', { time: Date.now() });
 
     socket.on('joinRoom', (data) => {
         let { roomId, nickname } = data;
@@ -330,31 +365,26 @@ io.on('connection', (socket) => {
             room.state = 'playing';
             room.enemies = []; room.bullets = []; room.lastEnemySpawn = Date.now();
             for (const player of room.players.values()) {
-                const spawn = getRandomSpawn();
+                const spawn = getSafeSpawn([]);
                 player.x = spawn.x; player.y = spawn.y;
                 player.health = MAX_HEALTH; player.score = 0; player.alive = true;
             }
-            for (let i = 0; i < 10; i++) room.spawnEnemy();
+            // FIXED: Spawn fewer initial enemies
+            for (let i = 0; i < INITIAL_ENEMIES; i++) room.spawnEnemy();
             io.to(room.id).emit('gameStarted', room.getState());
             console.log(`Game started in room ${room.id}`);
         }
     });
 
-    socket.on('chat', (message) => {
-        const room = rooms.get(socket.roomId);
-        if (room && room.players.has(socket.id)) {
-            const player = room.players.get(socket.id);
-            io.to(room.id).emit('chatMessage', {
-                nickname: player.nickname,
-                message: message.substring(0, 200)
-            });
-        }
+    // FIXED: Chat disabled - removed handler
+    socket.on('chat', () => {
+        // Chat disabled - do nothing
     });
 
     socket.on('disconnect', (reason) => {
         const room = rooms.get(socket.roomId);
         if (room) {
-            const player = room.removePlayer(socket.id);
+            room.removePlayer(socket.id);
             socket.to(room.id).emit('playerLeft', { playerId: socket.id });
             if (room.players.size === 0) {
                 rooms.delete(room.id);
@@ -365,18 +395,12 @@ io.on('connection', (socket) => {
         }
         console.log('Player disconnected:', socket.id, reason);
     });
-
-    socket.on('error', (err) => {
-        console.error('Socket error:', err);
-    });
 });
 
-// Health check endpoint for Render
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', players: io.engine.clientsCount });
 });
 
-// Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -385,7 +409,6 @@ app.get('/room/:id', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start server
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, '0.0.0.0', () => {
@@ -393,11 +416,10 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('║     NEON ARENA SERVER STARTED         ║');
     console.log('╠════════════════════════════════════════╣');
     console.log('║  Port: ' + PORT);
-    console.log('║  Mobile-optimized with polling fallback');
+    console.log('║  Fixed: movement, spawn, health, enemies');
     console.log('╚════════════════════════════════════════╝');
 });
 
-// Error handlers
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err.message);
 });
