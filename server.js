@@ -1,5 +1,5 @@
 // ============================================
-// NEON ARENA - Fixed Multiplayer Server
+// NEON ARENA - With Power-ups & Smooth Movement
 // ============================================
 
 const express = require('express');
@@ -24,20 +24,21 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Game Constants - FIXED VALUES
+// Game Constants - With Power-ups
 const MAX_PLAYERS = 4;
 const MAP_WIDTH = 1600;
 const MAP_HEIGHT = 1200;
-const PLAYER_SPEED = 6;
-const BULLET_SPEED = 15;
-const BULLET_DAMAGE = 10;  // Reduced from 25 - now takes 10 hits to kill
-const FIRE_RATE = 120;
+const PLAYER_SPEED = 5;
+const BULLET_SPEED = 14;
+const FIRE_RATE = 130;
 const MAX_HEALTH = 100;
-const ENEMY_SPAWN_RATE = 3000;  // Slowed down from 1500ms
+const ENEMY_SPAWN_RATE = 3500;
 const RESPAWN_TIME = 3000;
-const INITIAL_ENEMIES = 5;  // Reduced from 10
-const MAX_ENEMIES = 12;  // Maximum enemies on screen
-const SAFE_SPAWN_RADIUS = 150;  // Distance from enemies when spawning
+const INITIAL_ENEMIES = 4;
+const MAX_ENEMIES = 10;
+const SAFE_SPAWN_RADIUS = 180;
+const POWERUP_SPAWN_RATE = 15000;  // New: power-up spawn every 15 seconds
+const MAX_POWERUPS = 5;
 
 const PLAYER_COLORS = ['#00F0FF', '#FF003C', '#39FF14', '#BF00FF'];
 const rooms = new Map();
@@ -47,19 +48,18 @@ function generateRoomId() {
 }
 
 function getRandomSpawn() {
-    const margin = 100;
+    const margin = 120;
     return {
         x: margin + Math.random() * (MAP_WIDTH - margin * 2),
         y: margin + Math.random() * (MAP_HEIGHT - margin * 2)
     };
 }
 
-// FIXED: Safe spawn - finds location away from enemies
 function getSafeSpawn(enemies) {
     let attempts = 0;
-    const margin = 100;
+    const margin = 120;
     
-    while (attempts < 20) {
+    while (attempts < 30) {
         const x = margin + Math.random() * (MAP_WIDTH - margin * 2);
         const y = margin + Math.random() * (MAP_HEIGHT - margin * 2);
         
@@ -76,13 +76,20 @@ function getSafeSpawn(enemies) {
         attempts++;
     }
     
-    // Fallback to random position if no safe spot found
     return getRandomSpawn();
 }
 
 function distance(a, b) {
     return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
+
+// Power-up types
+const POWERUP_TYPES = [
+    { type: 'rapid', name: 'Быстрог огонь', color: '#FFFF00', duration: 8000, icon: '⚡' },
+    { type: 'power', name: 'Сила', color: '#FF6600', duration: 8000, icon: '💥' },
+    { type: 'speed', name: 'Скорость', color: '#00FF88', duration: 6000, icon: '💨' },
+    { type: 'shield', name: 'Щит', color: '#00FFFF', duration: 5000, icon: '🛡️' }
+];
 
 class GameRoom {
     constructor(roomId, hostId) {
@@ -92,15 +99,16 @@ class GameRoom {
         this.players = new Map();
         this.bullets = [];
         this.enemies = [];
+        this.powerups = [];
         this.lastEnemySpawn = 0;
+        this.lastPowerupSpawn = 0;
     }
 
     spawnEnemy() {
-        // Don't exceed max enemies
         if (this.enemies.length >= MAX_ENEMIES) return;
 
         const types = ['normal', 'fast', 'tank'];
-        const weights = [0.6, 0.25, 0.15];
+        const weights = [0.65, 0.25, 0.10];
         let rand = Math.random();
         let type = 'normal';
         for (let i = 0; i < types.length; i++) {
@@ -108,10 +116,11 @@ class GameRoom {
             if (rand <= 0) { type = types[i]; break; }
         }
 
+        // Much weaker enemies
         const stats = {
-            normal: { radius: 18, speed: 2.5, health: 40, color: '#FF5F1F', points: 100 },
-            fast: { radius: 14, speed: 4.5, health: 25, color: '#FF3366', points: 150 },
-            tank: { radius: 30, speed: 1.2, health: 120, color: '#9933FF', points: 300 }
+            normal: { radius: 16, speed: 2.8, health: 20, color: '#FF5F1F', points: 50 },
+            fast: { radius: 12, speed: 5, health: 15, color: '#FF3366', points: 75 },
+            tank: { radius: 28, speed: 1, health: 50, color: '#9933FF', points: 150 }
         };
 
         const stat = stats[type];
@@ -129,6 +138,26 @@ class GameRoom {
         });
     }
 
+    spawnPowerup() {
+        if (this.powerups.length >= MAX_POWERUPS) return;
+        
+        const spawn = getRandomSpawn();
+        const powerupType = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+        
+        this.powerups.push({
+            id: `powerup_${Date.now()}_${Math.random()}`,
+            x: spawn.x,
+            y: spawn.y,
+            type: powerupType.type,
+            name: powerupType.name,
+            color: powerupType.color,
+            icon: powerupType.icon,
+            duration: powerupType.duration,
+            radius: 15,
+            pulse: 0
+        });
+    }
+
     addPlayer(socket, nickname) {
         const colorIndex = this.players.size % PLAYER_COLORS.length;
         const spawn = getSafeSpawn(this.enemies);
@@ -137,6 +166,7 @@ class GameRoom {
             socketId: socket.id,
             nickname: nickname || `Игрок ${this.players.size + 1}`,
             x: spawn.x, y: spawn.y,
+            prevX: spawn.x, prevY: spawn.y,  // For interpolation
             angle: 0,
             color: PLAYER_COLORS[colorIndex],
             health: MAX_HEALTH,
@@ -144,7 +174,14 @@ class GameRoom {
             alive: true,
             respawnTime: 0,
             lastShot: 0,
-            input: {}
+            input: {},
+            // Power-up states
+            powerups: {
+                rapid: 0,
+                power: 0,
+                speed: 0,
+                shield: 0
+            }
         };
         this.players.set(socket.id, player);
         socket.join(this.id);
@@ -161,17 +198,44 @@ class GameRoom {
         return player;
     }
 
+    applyPowerup(player, powerupType) {
+        const now = Date.now();
+        const duration = powerupType.duration;
+        
+        switch (powerupType.type) {
+            case 'rapid':
+                player.powerups.rapid = now + duration;
+                break;
+            case 'power':
+                player.powerups.power = now + duration;
+                break;
+            case 'speed':
+                player.powerups.speed = now + duration;
+                break;
+            case 'shield':
+                player.powerups.shield = now + duration;
+                break;
+        }
+    }
+
     update(currentTime) {
         if (this.state !== 'playing') return;
 
         for (const player of this.players.values()) {
+            // Store previous position for interpolation
+            player.prevX = player.x;
+            player.prevY = player.y;
+
             if (!player.alive) {
                 if (currentTime > player.respawnTime) {
                     const spawn = getSafeSpawn(this.enemies);
-                    player.x = spawn.x; player.y = spawn.y;
+                    player.x = spawn.x; player.prevX = spawn.x;
+                    player.y = spawn.y; player.prevY = spawn.y;
                     player.health = MAX_HEALTH;
                     player.alive = true;
                     player.score = Math.max(0, player.score - 25);
+                    // Clear power-ups on respawn
+                    player.powerups = { rapid: 0, power: 0, speed: 0, shield: 0 };
                 }
                 continue;
             }
@@ -179,13 +243,11 @@ class GameRoom {
             if (player.input) {
                 let dx = 0, dy = 0;
                 
-                // Support joystick input (moveX/moveY)
                 if (player.input.moveX !== undefined || player.input.moveY !== undefined) {
                     dx = player.input.moveX || 0;
                     dy = player.input.moveY || 0;
                 }
                 
-                // Also support keyboard input (up/down/left/right)
                 if (player.input.up) dy -= 1;
                 if (player.input.down) dy += 1;
                 if (player.input.left) dx -= 1;
@@ -193,8 +255,15 @@ class GameRoom {
 
                 const len = Math.sqrt(dx * dx + dy * dy);
                 if (len > 0) {
-                    dx = (dx / len) * PLAYER_SPEED;
-                    dy = (dy / len) * PLAYER_SPEED;
+                    let speed = PLAYER_SPEED;
+                    
+                    // Speed boost power-up
+                    if (player.powerups.speed > currentTime) {
+                        speed = PLAYER_SPEED * 1.6;
+                    }
+                    
+                    dx = (dx / len) * speed;
+                    dy = (dy / len) * speed;
                 }
                 player.x += dx; player.y += dy;
                 player.x = Math.max(20, Math.min(MAP_WIDTH - 20, player.x));
@@ -206,7 +275,10 @@ class GameRoom {
             }
 
             if (player.input && player.input.shooting && player.alive) {
-                if (currentTime - player.lastShot >= FIRE_RATE) {
+                // Fire rate power-up
+                const fireRate = player.powerups.rapid > currentTime ? FIRE_RATE / 2.5 : FIRE_RATE;
+                
+                if (currentTime - player.lastShot >= fireRate) {
                     this.fireBullet(player);
                     player.lastShot = currentTime;
                 }
@@ -217,18 +289,28 @@ class GameRoom {
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i];
             bullet.x += bullet.vx; bullet.y += bullet.vy;
+            
             if (bullet.x < 0 || bullet.x > MAP_WIDTH || bullet.y < 0 || bullet.y > MAP_HEIGHT) {
                 this.bullets.splice(i, 1);
                 continue;
             }
+            
             for (let j = this.enemies.length - 1; j >= 0; j--) {
                 const enemy = this.enemies[j];
                 if (distance(bullet, enemy) < bullet.radius + enemy.radius) {
-                    enemy.health -= BULLET_DAMAGE;
+                    // Damage power-up
+                    let damage = BULLET_DAMAGE;
+                    const shooter = this.players.get(bullet.ownerId);
+                    if (shooter && shooter.powerups.power > currentTime) {
+                        damage = BULLET_DAMAGE * 2;
+                    }
+                    
+                    enemy.health -= damage;
                     this.bullets.splice(i, 1);
+                    
                     if (enemy.health <= 0) {
-                        if (bullet.ownerId && this.players.has(bullet.ownerId)) {
-                            this.players.get(bullet.ownerId).score += enemy.points;
+                        if (shooter) {
+                            shooter.score += enemy.points;
                         }
                         this.enemies.splice(j, 1);
                     }
@@ -246,6 +328,7 @@ class GameRoom {
                 const dist = distance(enemy, player);
                 if (dist < nearestDist) { nearestDist = dist; nearestPlayer = player; }
             }
+            
             if (nearestPlayer) {
                 const dx = nearestPlayer.x - enemy.x;
                 const dy = nearestPlayer.y - enemy.y;
@@ -254,11 +337,14 @@ class GameRoom {
                 enemy.y += (dy / dist) * enemy.speed;
                 enemy.angle = Math.atan2(dy, dx);
                 
-                // FIXED: Reduced damage per hit
                 for (const player of this.players.values()) {
                     if (!player.alive) continue;
+                    
+                    // Shield blocks damage
+                    if (player.powerups.shield > currentTime) continue;
+                    
                     if (distance(enemy, player) < enemy.radius + 18) {
-                        player.health -= enemy.type === 'tank' ? 8 : 5;
+                        player.health -= enemy.type === 'tank' ? 5 : 3;
                         if (player.health <= 0) {
                             player.alive = false;
                             player.respawnTime = currentTime + RESPAWN_TIME;
@@ -269,10 +355,38 @@ class GameRoom {
             }
         }
 
-        // Spawn enemies (slower rate)
+        // Check power-up collection
+        for (let i = this.powerups.length - 1; i >= 0; i--) {
+            const powerup = this.powerups[i];
+            powerup.pulse += 0.1;
+            
+            for (const player of this.players.values()) {
+                if (!player.alive) continue;
+                if (distance(player, powerup) < 25) {
+                    this.applyPowerup(player, powerup);
+                    this.powerups.splice(i, 1);
+                    
+                    // Notify player
+                    io.to(player.id).emit('powerupCollected', { 
+                        type: powerup.type, 
+                        name: powerup.name,
+                        duration: powerup.duration 
+                    });
+                    break;
+                }
+            }
+        }
+
+        // Spawn enemies
         if (currentTime - this.lastEnemySpawn > ENEMY_SPAWN_RATE && this.enemies.length < MAX_ENEMIES) {
             this.spawnEnemy();
             this.lastEnemySpawn = currentTime;
+        }
+
+        // Spawn power-ups
+        if (currentTime - this.lastPowerupSpawn > POWERUP_SPAWN_RATE) {
+            this.spawnPowerup();
+            this.lastPowerupSpawn = currentTime;
         }
     }
 
@@ -297,12 +411,14 @@ class GameRoom {
                 id: player.id, nickname: player.nickname,
                 x: player.x, y: player.y, angle: player.angle,
                 color: player.color, health: player.health,
-                score: player.score, alive: player.alive
+                score: player.score, alive: player.alive,
+                powerups: player.powerups
             });
         }
         return {
             id: this.id, state: this.state,
             players: playerArray, bullets: this.bullets, enemies: this.enemies,
+            powerups: this.powerups,
             hostId: this.hostId, playerCount: this.players.size
         };
     }
@@ -363,22 +479,26 @@ io.on('connection', (socket) => {
         const room = rooms.get(socket.roomId);
         if (room && socket.id === room.hostId) {
             room.state = 'playing';
-            room.enemies = []; room.bullets = []; room.lastEnemySpawn = Date.now();
+            room.enemies = []; 
+            room.bullets = []; 
+            room.powerups = [];
+            room.lastEnemySpawn = Date.now();
+            room.lastPowerupSpawn = Date.now();
+            
             for (const player of room.players.values()) {
                 const spawn = getSafeSpawn([]);
-                player.x = spawn.x; player.y = spawn.y;
-                player.health = MAX_HEALTH; player.score = 0; player.alive = true;
+                player.x = spawn.x; player.prevX = spawn.x;
+                player.y = spawn.y; player.prevY = spawn.y;
+                player.health = MAX_HEALTH; 
+                player.score = 0; 
+                player.alive = true;
+                player.powerups = { rapid: 0, power: 0, speed: 0, shield: 0 };
             }
-            // FIXED: Spawn fewer initial enemies
+            
             for (let i = 0; i < INITIAL_ENEMIES; i++) room.spawnEnemy();
             io.to(room.id).emit('gameStarted', room.getState());
             console.log(`Game started in room ${room.id}`);
         }
-    });
-
-    // FIXED: Chat disabled - removed handler
-    socket.on('chat', () => {
-        // Chat disabled - do nothing
     });
 
     socket.on('disconnect', (reason) => {
@@ -416,7 +536,7 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('║     NEON ARENA SERVER STARTED         ║');
     console.log('╠════════════════════════════════════════╣');
     console.log('║  Port: ' + PORT);
-    console.log('║  Fixed: movement, spawn, health, enemies');
+    console.log('║  With power-ups & smooth movement');
     console.log('╚════════════════════════════════════════╝');
 });
 
