@@ -465,13 +465,22 @@ app.get('/room/:id', (req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`\n╔════════════════════════════════════════╗`);
+
+// Bind to 0.0.0.0 for Render compatibility
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`╔════════════════════════════════════════╗`);
     console.log(`║     NEON ARENA SERVER STARTED         ║`);
     console.log(`╠════════════════════════════════════════╣`);
-    console.log(`║  Local:    http://localhost:${PORT}         ║`);
-    console.log(`║  Network:  http://${getLocalIP()}:${PORT} ║`);
-    console.log(`╚════════════════════════════════════════╝\n`);
+    console.log(`║  Port: ${PORT}`);
+    console.log(`║  Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`╚════════════════════════════════════════╝`);
+    console.log(`Server is ready and accepting connections!`);
+});
+
+// Error handling
+server.on('error', (err) => {
+    console.error('Server error:', err.message);
+    process.exit(1);
 });
 
 function getLocalIP() {
