@@ -393,6 +393,9 @@
                 this.state.players.forEach(p => this.prevPositions.set(p.id, { x: p.x, y: p.y }));
                 this.updateHealthUI();
                 this.updatePowerupsUI();
+                // Reset all input to prevent auto-movement
+                this.input = { up: false, down: false, left: false, right: false, moveX: 0, moveY: 0, angle: 0, shooting: false };
+                this.sendInput();
             });
 
             this.socket.on('gameUpdate', (st) => {

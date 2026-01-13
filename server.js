@@ -30,6 +30,7 @@ const MAP_WIDTH = 1600;
 const MAP_HEIGHT = 1200;
 const PLAYER_SPEED = 5;
 const BULLET_SPEED = 14;
+const BULLET_DAMAGE = 20;
 const FIRE_RATE = 130;
 const MAX_HEALTH = 100;
 const ENEMY_SPAWN_RATE = 3500;
