@@ -30,7 +30,7 @@ const MAP_WIDTH = 1600;
 const MAP_HEIGHT = 1200;
 const PLAYER_SPEED = 5;
 const BULLET_SPEED = 14;
-const BULLET_DAMAGE = 20;
+const BULLET_DAMAGE = 10;
 const FIRE_RATE = 130;
 const MAX_HEALTH = 100;
 const ENEMY_SPAWN_RATE = 3500;
@@ -117,11 +117,11 @@ class GameRoom {
             if (rand <= 0) { type = types[i]; break; }
         }
 
-        // Much weaker enemies
+        // Weaker enemies - die in 2-3 shots
         const stats = {
-            normal: { radius: 16, speed: 2.8, health: 20, color: '#FF5F1F', points: 50 },
-            fast: { radius: 12, speed: 5, health: 15, color: '#FF3366', points: 75 },
-            tank: { radius: 28, speed: 1, health: 50, color: '#9933FF', points: 150 }
+            normal: { radius: 16, speed: 2.5, health: 15, color: '#FF5F1F', points: 50 },
+            fast: { radius: 12, speed: 5.5, health: 10, color: '#FF3366', points: 75 },
+            tank: { radius: 28, speed: 0.8, health: 30, color: '#9933FF', points: 150 }
         };
 
         const stat = stats[type];
@@ -321,7 +321,9 @@ class GameRoom {
         }
 
         // Update enemies
-        for (const enemy of this.enemies) {
+        const enemiesToDestroy = [];
+        for (let ei = 0; ei < this.enemies.length; ei++) {
+            const enemy = this.enemies[ei];
             let nearestPlayer = null;
             let nearestDist = Infinity;
             for (const player of this.players.values()) {
@@ -341,19 +343,28 @@ class GameRoom {
                 for (const player of this.players.values()) {
                     if (!player.alive) continue;
                     
-                    // Shield blocks damage
-                    if (player.powerups.shield > currentTime) continue;
-                    
                     if (distance(enemy, player) < enemy.radius + 18) {
-                        player.health -= enemy.type === 'tank' ? 5 : 3;
-                        if (player.health <= 0) {
-                            player.alive = false;
-                            player.respawnTime = currentTime + RESPAWN_TIME;
-                            player.health = 0;
+                        // Enemy destroyed on contact
+                        enemiesToDestroy.push(ei);
+                        
+                        // Only damage player if no shield
+                        if (player.powerups.shield <= currentTime) {
+                            player.health -= enemy.type === 'tank' ? 5 : 3;
+                            if (player.health <= 0) {
+                                player.alive = false;
+                                player.respawnTime = currentTime + RESPAWN_TIME;
+                                player.health = 0;
+                            }
                         }
+                        break;
                     }
                 }
             }
+        }
+        
+        // Remove destroyed enemies (in reverse order to preserve indices)
+        for (let i = enemiesToDestroy.length - 1; i >= 0; i--) {
+            this.enemies.splice(enemiesToDestroy[i], 1);
         }
 
         // Check power-up collection
