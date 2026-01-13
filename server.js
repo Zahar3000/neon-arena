@@ -277,7 +277,7 @@ io.on('connection', (socket) => {
     socket.emit('ping', { time: Date.now() });
 
     socket.on('joinRoom', (data) => {
-        const { roomId, nickname } = data;
+        let { roomId, nickname } = data;
         
         if (!nickname || nickname.trim().length < 1) {
             socket.emit('error', { message: 'Введите никнейм!' });
